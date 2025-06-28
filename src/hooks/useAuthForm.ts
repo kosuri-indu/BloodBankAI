@@ -25,7 +25,7 @@ export default function useAuthForm({ type, userType }: UseAuthFormOptions) {
           navigate('/government-dashboard');
         }
       } else {
-        const success = await login(email, password, userType, extraData);
+        const success = await login(email, password, userType);
         if (success) {
           navigate('/dashboard');
         }
