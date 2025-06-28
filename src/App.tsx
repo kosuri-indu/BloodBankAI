@@ -10,7 +10,6 @@ import RegisterPage from "./pages/RegisterPage";
 import DashboardPage from "./pages/DashboardPage";
 import GovernmentLoginPage from "./pages/GovernmentLoginPage";
 import GovernmentDashboardPage from "./pages/GovernmentDashboardPage";
-import NotFound from "./pages/NotFound";
 import Navbar from "./components/Navbar";
 import Footer from "./components/Footer";
 
@@ -62,7 +61,6 @@ const AppRoutes = () => (
               <GovernmentDashboardPage />
             </GovernmentProtectedRoute>
           } />
-          <Route path="*" element={<NotFound />} />
         </Routes>
       </main>
       <Footer />

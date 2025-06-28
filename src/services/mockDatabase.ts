@@ -105,97 +105,11 @@ const initialHospitals: Hospital[] = [
 ];
 
 const initialInventory: BloodInventory[] = [
-  {
-    id: 'inventory-1',
-    hospitalId: 'hospital-1',
-    hospital: 'City General Hospital',
-    bloodType: 'A',
-    rhFactor: 'positive',
-    units: 50,
-    processedDate: new Date('2024-01-01'),
-    expirationDate: new Date('2024-03-01'),
-    donorAge: 25,
-    specialAttributes: ['irradiated', 'leukoreduced'],
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  },
-  {
-    id: 'inventory-2',
-    hospitalId: 'hospital-1',
-    hospital: 'City General Hospital',
-    bloodType: 'B',
-    rhFactor: 'negative',
-    units: 30,
-    processedDate: new Date('2024-01-15'),
-    expirationDate: new Date('2024-03-15'),
-    donorAge: 30,
-    specialAttributes: ['cmv-negative'],
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  },
-  {
-    id: 'inventory-3',
-    hospitalId: 'hospital-2',
-    hospital: 'Regional Medical Center',
-    bloodType: 'O',
-    rhFactor: 'positive',
-    units: 40,
-    processedDate: new Date('2024-02-01'),
-    expirationDate: new Date('2024-04-01'),
-    donorAge: 22,
-    specialAttributes: [],
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  },
-  {
-    id: 'inventory-4',
-    hospitalId: 'hospital-3',
-    hospital: 'University Teaching Hospital',
-    bloodType: 'AB',
-    rhFactor: 'negative',
-    units: 25,
-    processedDate: new Date('2024-02-10'),
-    expirationDate: new Date('2024-04-10'),
-    donorAge: 28,
-    specialAttributes: ['washed'],
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  },
+  
 ];
 
 const initialRequests: BloodRequest[] = [
-  {
-    id: 'request-1',
-    hospitalId: 'hospital-1',
-    hospital: 'City General Hospital',
-    bloodType: 'A Rh+ (A+)',
-    units: 10,
-    urgency: 'urgent',
-    patientAge: 60,
-    patientWeight: 75,
-    medicalCondition: 'Anemia',
-    neededBy: new Date('2024-02-28'),
-    specialRequirements: [],
-    matchPercentage: 75,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  },
-  {
-    id: 'request-2',
-    hospitalId: 'hospital-2',
-    hospital: 'Regional Medical Center',
-    bloodType: 'O Rh- (O-)',
-    units: 5,
-    urgency: 'critical',
-    patientAge: 45,
-    patientWeight: 68,
-    medicalCondition: 'Trauma',
-    neededBy: new Date('2024-03-05'),
-    specialRequirements: ['cmv-negative'],
-    matchPercentage: 90,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  },
+  
 ];
 
 class MockDatabaseService {
@@ -207,20 +121,30 @@ class MockDatabaseService {
   }
 
   private seedDatabase() {
+    // Initialize hospitals
     if (!this.getStoredData('hospitals')) {
       this.localStorage.setItem('bloodbank_hospitals', JSON.stringify(initialHospitals));
     }
+
+    // Initialize inventory
     if (!this.getStoredData('inventory')) {
       this.localStorage.setItem('bloodbank_inventory', JSON.stringify(initialInventory));
     }
+
+    // Initialize blood requests
     if (!this.getStoredData('bloodRequests')) {
       this.localStorage.setItem('bloodbank_bloodRequests', JSON.stringify(initialRequests));
+    }
+
+    // Initialize AI matches
+    if (!this.getStoredData('matches')) {
+      this.localStorage.setItem('bloodbank_matches', JSON.stringify([]));
     }
   }
 
   private getStoredData(key: string): any {
     const storedData = this.localStorage.getItem(`bloodbank_${key}`);
-    return storedData ? JSON.parse(storedData) : null;
+    return storedData ? JSON.parse(storedData) : [];
   }
 
   async registerHospital(hospitalData: Omit<Hospital, 'id' | 'createdAt' | 'verified'>): Promise<Hospital> {
@@ -253,11 +177,35 @@ class MockDatabaseService {
   }
 
   async getAllHospitalsWithData(): Promise<{ hospitals: Hospital[], inventory: BloodInventory[], requests: BloodRequest[] }> {
-    const hospitals = this.getStoredData('hospitals') as Hospital[] || [];
-    const inventory = this.getStoredData('inventory') as BloodInventory[] || [];
-    const requests = this.getStoredData('bloodRequests') as BloodRequest[] || [];
-    
-    return { hospitals, inventory, requests };
+    try {
+      const [hospitals, inventory, requests] = await Promise.all([
+        this.getRegisteredHospitals(),
+        this.getBloodInventoryDetails(),
+        this.getBloodRequests()
+      ]);
+
+      return { hospitals, inventory, requests };
+    } catch (error) {
+      console.error('Error fetching all hospitals data:', error);
+      throw error;
+    }
+  }
+
+  async getHospitalWithMatches(hospitalId: string): Promise<{ hospital: Hospital | undefined, matches: AiMatch[] }> {
+    try {
+      const hospital = await this.getHospitalById(hospitalId);
+      const matches = await this.getAiMatches();
+      
+      return {
+        hospital,
+        matches: matches.filter(match => 
+          match.donorId === hospitalId || match.requestId === hospitalId
+        )
+      };
+    } catch (error) {
+      console.error('Error fetching hospital with matches:', error);
+      throw error;
+    }
   }
 
   async getAllData(): Promise<{ hospitals: Hospital[], inventory: BloodInventory[], requests: BloodRequest[] }> {
@@ -287,14 +235,35 @@ class MockDatabaseService {
 
   async deleteHospital(hospitalId: string): Promise<{ success: boolean; error?: string }> {
     try {
+      // Get all data first
       const hospitals = this.getStoredData('hospitals') as Hospital[];
+      const inventory = this.getStoredData('bloodbank_inventory') as BloodInventory[];
+      const requests = this.getStoredData('bloodbank_requests') as BloodRequest[];
+      const matches = this.getStoredData('bloodbank_matches') as AiMatch[];
+
+      // Filter out hospital
       const filteredHospitals = hospitals.filter(h => h.id !== hospitalId);
       
       if (filteredHospitals.length === hospitals.length) {
         return { success: false, error: 'Hospital not found' };
       }
+
+      // Remove all inventory items related to this hospital
+      const filteredInventory = inventory.filter(item => item.hospitalId !== hospitalId);
       
+      // Remove all requests related to this hospital
+      const filteredRequests = requests.filter(req => req.hospitalId !== hospitalId);
+      
+      // Remove all matches related to this hospital
+      const filteredMatches = matches.filter(match => match.donorId !== hospitalId && match.requestId !== hospitalId);
+
+      // Update all storage
       this.localStorage.setItem('bloodbank_hospitals', JSON.stringify(filteredHospitals));
+      this.localStorage.setItem('bloodbank_inventory', JSON.stringify(filteredInventory));
+      this.localStorage.setItem('bloodbank_requests', JSON.stringify(filteredRequests));
+      this.localStorage.setItem('bloodbank_matches', JSON.stringify(filteredMatches));
+
+      // Dispatch refresh event
       window.dispatchEvent(new CustomEvent('dataRefresh'));
       
       return { success: true };
@@ -375,6 +344,20 @@ class MockDatabaseService {
       return { success: true };
     } catch (error) {
       return { success: false, error: error.message };
+    }
+  }
+
+  async getAiMatches(): Promise<AiMatch[]> {
+    return (this.getStoredData('bloodbank_matches') as AiMatch[]) || [];
+  }
+
+  async setAiMatches(matches: AiMatch[]): Promise<void> {
+    try {
+      this.localStorage.setItem('bloodbank_matches', JSON.stringify(matches));
+      window.dispatchEvent(new CustomEvent('dataRefresh'));
+    } catch (error) {
+      console.error('Error setting AI matches:', error);
+      throw error;
     }
   }
 

@@ -140,16 +140,38 @@ const GovernmentDashboardPage = () => {
       const result = await mockDatabaseService.deleteHospital(hospitalId);
       
       if (result.success) {
-        setPendingHospitals(prev => prev.filter(h => h.id !== hospitalId));
-        setHospitals(prev => prev.filter(h => h.id !== hospitalId));
-        setHospitalsWithData(prev => prev.filter(h => h.hospital.id !== hospitalId));
+        // Clear all related data
+        setPendingHospitals([]);
+        setHospitals([]);
+        setHospitalsWithData([]);
+        setAllRequests([]);
+        setAllInventory([]);
         
         toast({
           title: "Hospital Deleted",
           description: `${hospitalName} has been removed from the system.`,
         });
         
-        await fetchData();
+        try {
+          // Force a complete refresh of all data
+          await fetchData();
+          
+          // Get all matches and update them
+          const matches = await mockDatabaseService.getAiMatches();
+          if (matches && Array.isArray(matches)) {
+            const filteredMatches = matches.filter(match => 
+              match.donorId !== hospitalId && match.requestId !== hospitalId
+            );
+            await mockDatabaseService.setAiMatches(filteredMatches);
+          }
+        } catch (refreshError) {
+          console.error('Error during data refresh:', refreshError);
+          toast({
+            title: "Data Refresh Error",
+            description: "Some data may not have been fully updated. Please refresh the page.",
+            variant: "destructive"
+          });
+        }
       } else {
         toast({
           title: "Delete Failed",
